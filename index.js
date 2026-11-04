@@ -14,7 +14,7 @@ import { createBridge } from './lib/bridge.js'
 import { createRouter } from './lib/commands.js'
 import { createInteractions } from './lib/interactions.js'
 import { describeSkippedMedia, sendTurnMedia } from './lib/media.js'
-import { registerPromptSection } from './lib/prompt.js'
+import { registerPromptSection, TELEGRAM_MARKER } from './lib/prompt.js'
 import { BridgeState } from './lib/state.js'
 import { topicNameForStatus } from './lib/topics.js'
 import { createMediaCompressor } from './lib/transcode.js'
@@ -95,6 +95,7 @@ export function apply(ctx, rawConfig) {
       : config.allowedChatIds.map((chatId) => ({ chatId, threadId: null })),
     ensureTopic: async (sessionId) => {
       if (!sessionId) return
+      if (config.notifications.onlyTelegramOriginated && !(await turnIsTelegram(sessionId))) return
       const status = await statusForMaybe({ id: sessionId })
       await ensureNotificationTopic(sessionId, status)
     },
@@ -299,6 +300,27 @@ export function apply(ctx, rawConfig) {
   }
 
   /**
+   * Did the turn's latest user prompt come through the Telegram bridge?
+   * Every bridged prompt starts with the marker, so this survives restarts.
+   * @param {any} turnView
+   * @returns {boolean}
+   */
+  function isTelegramTurn(turnView) {
+    const turns = Array.isArray(turnView?.turns) ? turnView.turns : []
+    const last = turns[turns.length - 1]
+    const text = typeof last?.userText === 'string' ? last.userText.trimStart() : ''
+    return text !== '' && text.startsWith(TELEGRAM_MARKER)
+  }
+
+  /** @param {string} sessionId */
+  async function turnIsTelegram(sessionId) {
+    const view = await bridge
+      .readRecentTurns(sessionId, { turns: 1, maxEvents: config.limits.maxEventsPerRead })
+      .catch(() => null)
+    return isTelegramTurn(view)
+  }
+
+  /**
    * @param {any} session
    * @param {any} event
    */
@@ -329,6 +351,8 @@ export function apply(ctx, rawConfig) {
       statusForMaybe({ id: session.id }),
       bridge.readRecentTurns(sessionId, { turns: 1, maxEvents: config.limits.maxEventsPerRead }).catch(() => null),
     ])
+    // Quiet desktop work: only Telegram-originated turns push to the chat.
+    if (config.notifications.onlyTelegramOriginated && !isTelegramTurn(turnView)) return
     await ensureNotificationTopic(sessionId, status)
     await syncArchiveForSession(sessionId)
     const targets = notificationTargets(sessionId)
@@ -383,6 +407,7 @@ export function apply(ctx, rawConfig) {
     if (!config.notifications.enabled || !config.notifications.onError || config.notifications.onTurnEnd) return
     const sessionId = String(agent?.id ?? agent?.session ?? '')
     if (sessionId === '' || notifiedErrors.get(sessionId) === Number(turn)) return
+    if (config.notifications.onlyTelegramOriginated && !(await turnIsTelegram(sessionId))) return
     const chats = notificationTargets(sessionId)
     if (chats.length === 0) return
     const status = await statusForMaybe({ id: sessionId })
@@ -399,6 +424,7 @@ export function apply(ctx, rawConfig) {
    */
   async function notifyRemoteInteraction(sessionId, kind) {
     if (lifetime.signal.aborted || api === null || !config.notifications.enabled) return
+    if (config.notifications.onlyTelegramOriginated && !(await turnIsTelegram(sessionId))) return
     const status = await statusForMaybe({ id: sessionId })
     await ensureNotificationTopic(sessionId, status)
     const chats = notificationTargets(sessionId)
@@ -481,6 +507,7 @@ export function apply(ctx, rawConfig) {
         const chats = notificationTargets(sessionId)
         if (chats.length === 0) return
         void (async () => {
+          if (config.notifications.onlyTelegramOriginated && !(await turnIsTelegram(sessionId))) return
           const status = await statusForMaybe({ id: sessionId })
           const parts = views.sessionStartedParts(status, { turn: Number(event.data?.turn ?? 0), sessionId, url: webUrl() })
           await sendToChats(chats, () => parts, status, sessionId)

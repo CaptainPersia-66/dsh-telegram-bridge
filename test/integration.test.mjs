@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { apply } from '../index.js'
+import { TELEGRAM_MARKER } from '../lib/prompt.js'
 import {
   assistantMessage,
   createFakeHost,
@@ -210,7 +211,7 @@ function buttonData(message) {
 }
 
 test('pairing, help, session list, selection, prompt, result, review, notify, approval and question flows', async (t) => {
-  const env = await setup()
+  const env = await setup({ notifications: { onlyTelegramOriginated: false } })
   t.after(() => env.cleanup())
   const { telegram, host } = env
 
@@ -337,7 +338,10 @@ test('pairing, help, session list, selection, prompt, result, review, notify, ap
 })
 
 test('auto approval mode defers to a desktop client but still notifies', async (t) => {
-  const env = await setup({ approvals: { mode: 'auto', timeoutMs: 3000 } })
+  const env = await setup({
+    approvals: { mode: 'auto', timeoutMs: 3000 },
+    notifications: { onlyTelegramOriginated: false },
+  })
   t.after(() => env.cleanup())
   env.host.setLiveClient(true)
 
@@ -537,7 +541,7 @@ test('archived sessions stay out of the picker unless sessions.includeArchived i
 })
 
 test('turn media is forwarded to Telegram and /files resends it', async (t) => {
-  const env = await setup()
+  const env = await setup({ notifications: { onlyTelegramOriginated: false } })
   t.after(() => env.cleanup())
   const directory = await mkdtemp(join(tmpdir(), 'dsh-tg-media-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
@@ -600,7 +604,7 @@ test('turn media is forwarded to Telegram and /files resends it', async (t) => {
 })
 
 test('replying to a session message routes the prompt to that session', async (t) => {
-  const env = await setup({ notifications: { enabled: true, mode: 'all', onTurnEnd: true } })
+  const env = await setup({ notifications: { enabled: true, mode: 'all', onTurnEnd: true, onlyTelegramOriginated: false } })
   t.after(() => env.cleanup())
   const { telegram, host } = env
   const deltaId = 'session-delta-0010'
@@ -674,7 +678,7 @@ test('forum topics bind one session per topic and route prompts and notification
   const GROUP = '-1009001'
   const env = await setup({
     allowedChatIds: [CHAT, GROUP],
-    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true, onlyTelegramOriginated: false },
   })
   t.after(() => env.cleanup())
   const { telegram, host } = env
@@ -713,7 +717,7 @@ test('the sessions card can create one topic per listed session', async (t) => {
   const GROUP = '-1009002'
   const env = await setup({
     allowedChatIds: [CHAT, GROUP],
-    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true, onlyTelegramOriginated: false },
   })
   t.after(() => env.cleanup())
   const { telegram } = env
@@ -742,7 +746,7 @@ test('General redirects the picker to the control topic and selection opens a se
   const GROUP = '-1009003'
   const env = await setup({
     allowedChatIds: [CHAT, GROUP],
-    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true, onlyTelegramOriginated: false },
   })
   t.after(() => env.cleanup())
   const { telegram } = env
@@ -799,7 +803,7 @@ test('selecting a session that already has a topic reuses it instead of creating
   const GROUP = '-1009004'
   const env = await setup({
     allowedChatIds: [CHAT, GROUP],
-    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true, onlyTelegramOriginated: false },
   })
   t.after(() => env.cleanup())
   const { telegram } = env
@@ -842,7 +846,7 @@ test('topic names can be renamed manually and follow session renames', async (t)
   const GROUP = '-1009005'
   const env = await setup({
     allowedChatIds: [CHAT, GROUP],
-    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true, onlyTelegramOriginated: false },
   })
   t.after(() => env.cleanup())
   const { telegram } = env
@@ -876,7 +880,7 @@ test('topics close when archived, reopen when restored, and toggle manually', as
   const GROUP = '-1009006'
   const env = await setup({
     allowedChatIds: [CHAT, GROUP],
-    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true, onlyTelegramOriginated: false },
   })
   t.after(() => env.cleanup())
   const { telegram, host } = env
@@ -925,7 +929,7 @@ test('a session gets a topic on its first notification when selection topic crea
   const env = await setup({
     allowedChatIds: [CHAT, GROUP],
     topics: { autoCreate: false, autoCreateOnNotify: true },
-    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true, onlyTelegramOriginated: false },
   })
   t.after(() => env.cleanup())
   const { telegram, host } = env
@@ -954,4 +958,47 @@ test('a session gets a topic on its first notification when selection topic crea
     ),
     { label: 'notification posted into the new topic', timeoutMs: 5000 },
   )
+})
+
+test('desktop-originated turns stay quiet in Telegram', async (t) => {
+  const env = await setup()
+  t.after(() => env.cleanup())
+  const { telegram, host } = env
+
+  telegram.pushUpdate(textUpdate('/use 1', CHAT, env.nextUpdateId()))
+  await telegram.waitForMessage((message) => message.text.includes('Alpha task'), 5000)
+  const before = telegram.messages.length
+  host.pushSessionEvent(ALPHA, turnEnd(8, 1, 'completed'))
+  await new Promise((resolve) => setTimeout(resolve, 900))
+  const extra = telegram.messages.slice(before)
+  assert.equal(
+    extra.some((message) => message.text.includes('Turn finished')),
+    false,
+    'a desktop-originated turn must not push to Telegram',
+  )
+})
+
+test('Telegram-originated turns still push the answer', async (t) => {
+  const env = await setup()
+  t.after(() => env.cleanup())
+  const { telegram, host } = env
+  const remoteId = 'session-remote-0011'
+  host.addSession({
+    id: remoteId,
+    title: 'Remote task',
+    updatedAt: Date.now(),
+    running: false,
+    projections: { title: 'Remote task' },
+    events: [
+      turnStart(1, 1),
+      userMessage(2, 1, 1, `${TELEGRAM_MARKER}\nRemote question`),
+      assistantMessage(3, 1, 1, 'Remote answer.'),
+      turnEnd(4, 1, 'completed'),
+    ],
+  })
+  telegram.pushUpdate(textUpdate(`/use ${remoteId}`, CHAT, env.nextUpdateId()))
+  await telegram.waitForMessage((message) => message.text.includes('Remote task'), 5000)
+  host.pushSessionEvent(remoteId, turnEnd(5, 1, 'completed'))
+  await telegram.waitForMessage((message) => message.text.includes('Turn finished'), 5000)
+  await telegram.waitForMessage((message) => message.text.includes('Remote answer.'), 5000)
 })

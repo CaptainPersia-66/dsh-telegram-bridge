@@ -54,3 +54,5 @@ are resolved from the environment (`TELEGRAM_BOT_TOKEN`).
 - Every Telegram-originated prompt starts with `[via Telegram]`; a Host system
   prompt section tells the model to deliver files with `present` and never open
   windows/files on the host desktop.
+- Notifications are origin-aware: by default only turns whose latest prompt came
+  through Telegram push to the chat; desktop turns stay quiet.

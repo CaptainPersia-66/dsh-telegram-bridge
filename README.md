@@ -249,6 +249,20 @@ edited to show the final decision and its keyboard is removed.
 - Sessions that are their own child agents (`origin: subagent`) are skipped
   unless `notifications.includeSubagents: true`.
 
+**Origin-aware pushes.** Every Telegram prompt starts with `[via Telegram]`, so
+the bridge can tell where the current turn came from. With
+`notifications.onlyTelegramOriginated: true` (the default):
+
+- A turn whose latest prompt came from **Telegram** pushes its header, answer,
+  media, and interactions to the chat.
+- A turn started in the **desktop app** stays quiet on Telegram — no turn
+  notification, no media, no duplicate interaction notices. Answer it in DSH.
+- Ambiguous/unknown turns are treated as desktop (quiet) rather than noisy.
+
+Set it to `false` to get pushes for desktop-originated turns too (the old
+behavior). Interaction **claims** are still controlled by `approvals.mode` /
+`questions.mode`; in `auto` mode a connected desktop client answers in-app.
+
 A chat watches its **selected session** by default; `/notify all` switches it to
 every top-level session.
 
@@ -349,6 +363,7 @@ reported as warnings in the Host log.
       onQuestion: true
       onSessionStart: false
       snippetChars: 0              # 0 = send the whole final message; >0 truncates
+      onlyTelegramOriginated: true # desktop turns stay quiet on Telegram
     approvals:
       mode: auto                   # auto | telegram | notify | off
       timeoutMs: 120000
