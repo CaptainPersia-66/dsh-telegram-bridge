@@ -1,0 +1,18 @@
+# Runtime and local-only files
+node_modules/
+coverage/
+*.log
+state.json
+*.state.json
+.env
+.env.*
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / tooling
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,21 @@
+# Telegram bridge bundle: inserts one Host row into the current dsh profile.
+#
+# The bot token is never stored in this file. By default the plugin resolves the
+# credential reference `TELEGRAM_BOT_TOKEN` through the Harness credential
+# service (which reads the provider-managed store, the process environment, and
+# .env files). Set it in your environment or store it as a DSH credential.
+#
+# Quick start:
+#   1. Create a bot with @BotFather and copy its token.
+#   2. Make TELEGRAM_BOT_TOKEN available to the Harness process
+#      (for example a Windows user environment variable), then restart dsh.
+#   3. Send /start to your bot; it replies with your numeric chat id.
+#   4. Add that id to allowedChatIds below and restart dsh (or edit the row in
+#      the profile patch). Empty allowedChatIds is pairing mode: the bot tells
+#      you your chat id but refuses every command.
+- insert:
+    - id: telegram-bridge
+      name: '@local/dsh-telegram-bridge'
+      config:
+        tokenRef: TELEGRAM_BOT_TOKEN
+        allowedChatIds: []
