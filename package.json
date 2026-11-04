@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "description": "Manage DeepSeek Harness sessions from Telegram: list, follow, prompt, review results, and answer approvals.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CaptainPersia-66/dsh-telegram-bridge.git"
+  },
+  "license": "MIT",
   "type": "module",
   "main": "index.js",
   "exports": {
