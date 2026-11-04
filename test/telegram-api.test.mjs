@@ -734,3 +734,28 @@ test('sendFile uploads multipart media and records the Bot API method', async ()
     await assert.rejects(api.sendFile({ bytes: new Uint8Array([1]) }), /chatId/);
   });
 });
+
+test('editForumTopic treats TOPIC_NOT_MODIFIED as a successful no-op', async () => {
+  await withFake({}, async (fake) => {
+    const api = makeApi(fake);
+    fake.setBehavior('editForumTopic', () => ({
+      status: 400,
+      body: { ok: false, error_code: 400, description: 'Bad Request: TOPIC_NOT_MODIFIED' },
+    }));
+    const result = await api.editForumTopic({ chatId: 5, messageThreadId: 9, name: 'Same name' });
+    assert.equal(result, true);
+
+    fake.setBehavior('editForumTopic', () => ({
+      status: 400,
+      body: { ok: false, error_code: 400, description: 'Bad Request: TOPIC_NAME_EMPTY' },
+    }));
+    await assert.rejects(
+      api.editForumTopic({ chatId: 5, messageThreadId: 9, name: 'x' }),
+      (error) => {
+        assert.ok(error instanceof TelegramApiError);
+        assert.match(error.description, /TOPIC_NAME_EMPTY/);
+        return true;
+      },
+    );
+  });
+});
