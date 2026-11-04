@@ -738,7 +738,7 @@ test('the sessions card can create one topic per listed session', async (t) => {
   )
 })
 
-test('a General message without a thread id does not reuse the previous topic', async (t) => {
+test('General redirects the picker to the control topic and selection opens a session topic', async (t) => {
   const GROUP = '-1009003'
   const env = await setup({
     allowedChatIds: [CHAT, GROUP],
@@ -755,20 +755,32 @@ test('a General message without a thread id does not reuse the previous topic', 
   )
   const firstTopic = telegram.messages.find((message) => String(message.chatId) === GROUP && Number(message.threadId) > 1).threadId
 
-  // General messages may omit message_thread_id entirely; the reply must go to
-  // General (not inherit the first topic) and selecting another session must
-  // create a second topic.
+  // General without a thread id redirects the picker into the control topic.
   telegram.pushUpdate(forumUpdate('/sessions', GROUP, env.nextUpdateId(), 0))
   await waitUntil(
+    () => telegram.calls.some((call) => call.method === 'createForumTopic' && call.params.name === 'DSH'),
+    { label: 'control topic created', timeoutMs: 5000 },
+  )
+  await waitUntil(
     () => telegram.messages.some(
-      (message) => String(message.chatId) === GROUP && !message.threadId && JSON.stringify(message.keyboard ?? {}).includes('sel:1'),
+      (message) => String(message.chatId) === GROUP && !message.threadId && message.text.includes('control topic'),
     ),
-    { label: 'sessions card sent to General again', timeoutMs: 5000 },
+    { label: 'General note points at the control topic', timeoutMs: 5000 },
+  )
+  await waitUntil(
+    () => telegram.messages.some(
+      (message) => String(message.chatId) === GROUP && Number(message.threadId) > 1 && JSON.stringify(message.keyboard ?? {}).includes('sel:1'),
+    ),
+    { label: 'sessions card in the control topic', timeoutMs: 5000 },
   )
   const card = [...telegram.messages].reverse().find(
-    (message) => String(message.chatId) === GROUP && !message.threadId && JSON.stringify(message.keyboard ?? {}).includes('sel:1'),
+    (message) => String(message.chatId) === GROUP && Number(message.threadId) > 1 && JSON.stringify(message.keyboard ?? {}).includes('sel:1'),
   )
-  telegram.pushUpdate(forumCallbackUpdate(card, 'sel:1', env.nextUpdateId(), 0))
+  assert.ok(card, 'sessions card must be sent into the control topic')
+
+  // Selecting beta from the control topic creates beta's own topic (the control
+  // topic itself must never be bound).
+  telegram.pushUpdate(forumCallbackUpdate(card, 'sel:1', env.nextUpdateId(), card.threadId))
   await waitUntil(
     () => telegram.messages.some(
       (message) => String(message.chatId) === GROUP && Number(message.threadId) > 1 && message.text.includes('Beta task'),
@@ -778,9 +790,9 @@ test('a General message without a thread id does not reuse the previous topic', 
   const secondCard = telegram.messages.find(
     (message) => String(message.chatId) === GROUP && Number(message.threadId) > 1 && message.text.includes('Beta task'),
   )
-  const secondTopic = secondCard.threadId
-  assert.notEqual(Number(secondTopic), Number(firstTopic))
-  assert.ok(telegram.calls.filter((call) => call.method === 'createForumTopic').length >= 2)
+  assert.notEqual(Number(secondCard.threadId), Number(firstTopic))
+  // The session card was pinned when posted.
+  assert.ok(telegram.calls.some((call) => call.method === 'pinChatMessage'))
 })
 
 test('selecting a session that already has a topic reuses it instead of creating another', async (t) => {
@@ -800,27 +812,28 @@ test('selecting a session that already has a topic reuses it instead of creating
   )
 
   // Selecting the same session again must explain that it already has a topic
-  // and post its card there, not create a duplicate.
+  // and post its card there, not create a duplicate (the control topic is the
+  // only other topic created here).
   telegram.pushUpdate(forumUpdate('/sessions', GROUP, env.nextUpdateId(), 0))
   await waitUntil(
     () => telegram.messages.some(
-      (message) => String(message.chatId) === GROUP && !message.threadId && JSON.stringify(message.keyboard ?? {}).includes('sel:0'),
+      (message) => String(message.chatId) === GROUP && Number(message.threadId) > 1 && JSON.stringify(message.keyboard ?? {}).includes('sel:0'),
     ),
-    { label: 'sessions card sent to General', timeoutMs: 5000 },
+    { label: 'sessions card sent to the control topic', timeoutMs: 5000 },
   )
   const card = [...telegram.messages].reverse().find(
-    (message) => String(message.chatId) === GROUP && !message.threadId && JSON.stringify(message.keyboard ?? {}).includes('sel:0'),
+    (message) => String(message.chatId) === GROUP && Number(message.threadId) > 1 && JSON.stringify(message.keyboard ?? {}).includes('sel:0'),
   )
-  telegram.pushUpdate(forumCallbackUpdate(card, 'sel:0', env.nextUpdateId(), 0))
+  telegram.pushUpdate(forumCallbackUpdate(card, 'sel:0', env.nextUpdateId(), card.threadId))
   await waitUntil(
     () => telegram.messages.some(
-      (message) => String(message.chatId) === GROUP && !message.threadId && message.text.includes('already has a topic'),
+      (message) => String(message.chatId) === GROUP && Number(message.threadId) > 1 && message.text.includes('already has a topic'),
     ),
     { label: 'reuse confirmation sent', timeoutMs: 5000 },
   )
   assert.equal(
     telegram.calls.filter((call) => call.method === 'createForumTopic').length,
-    1,
+    2,
     'selecting a bound session must not create a duplicate topic',
   )
 })
@@ -856,5 +869,89 @@ test('topic names can be renamed manually and follow session renames', async (t)
   await waitUntil(
     () => telegram.calls.some((call) => call.method === 'editForumTopic' && call.params.name === 'Renamed Alpha'),
     { label: 'session rename synced to topic', timeoutMs: 5000 },
+  )
+})
+
+test('topics close when archived, reopen when restored, and toggle manually', async (t) => {
+  const GROUP = '-1009006'
+  const env = await setup({
+    allowedChatIds: [CHAT, GROUP],
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+  })
+  t.after(() => env.cleanup())
+  const { telegram, host } = env
+
+  // Give alpha a topic.
+  telegram.pushUpdate(forumUpdate('/use session-alpha-0001', GROUP, env.nextUpdateId(), 1))
+  await waitUntil(
+    () => telegram.messages.some((message) => String(message.chatId) === GROUP && Number(message.threadId) > 1),
+    { label: 'session topic created', timeoutMs: 5000 },
+  )
+  const topicId = telegram.messages.find(
+    (message) => String(message.chatId) === GROUP && Number(message.threadId) > 1,
+  ).threadId
+
+  // Manual close/reopen inside the topic.
+  telegram.pushUpdate(forumUpdate('/topic close', GROUP, env.nextUpdateId(), topicId))
+  await waitUntil(
+    () => telegram.calls.some((call) => call.method === 'closeForumTopic'),
+    { label: 'manual topic close', timeoutMs: 5000 },
+  )
+  telegram.pushUpdate(forumUpdate('/topic reopen', GROUP, env.nextUpdateId(), topicId))
+  await waitUntil(
+    () => telegram.calls.some((call) => call.method === 'reopenForumTopic'),
+    { label: 'manual topic reopen', timeoutMs: 5000 },
+  )
+
+  // Archiving the session closes its topic on the next picker render.
+  host.setArchivedSessionIds(['session-alpha-0001'])
+  telegram.pushUpdate(forumUpdate('/sessions', GROUP, env.nextUpdateId(), 0))
+  await waitUntil(
+    () => telegram.calls.filter((call) => call.method === 'closeForumTopic').length >= 2,
+    { label: 'archived session topic closed', timeoutMs: 5000 },
+  )
+
+  // Restoring it reopens the topic.
+  host.setArchivedSessionIds([])
+  telegram.pushUpdate(forumUpdate('/sessions', GROUP, env.nextUpdateId(), 0))
+  await waitUntil(
+    () => telegram.calls.filter((call) => call.method === 'reopenForumTopic').length >= 2,
+    { label: 'restored session topic reopened', timeoutMs: 5000 },
+  )
+})
+
+test('a session gets a topic on its first notification when selection topic creation is off', async (t) => {
+  const GROUP = '-1009007'
+  const env = await setup({
+    allowedChatIds: [CHAT, GROUP],
+    topics: { autoCreate: false, autoCreateOnNotify: true },
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+  })
+  t.after(() => env.cleanup())
+  const { telegram, host } = env
+
+  // Selecting only sets the chat's current session (no topic yet).
+  telegram.pushUpdate(forumUpdate('/use session-alpha-0001', GROUP, env.nextUpdateId(), 1))
+  await waitUntil(
+    () => telegram.messages.some(
+      (message) => String(message.chatId) === GROUP && !message.threadId && message.text.includes('Alpha task'),
+    ),
+    { label: 'status shown in General', timeoutMs: 5000 },
+  )
+  assert.equal(telegram.calls.filter((call) => call.method === 'createForumTopic').length, 0)
+
+  // The first turn notification creates the topic and lands inside it.
+  host.pushSessionEvent('session-alpha-0001', turnEnd(5, 1, 'completed'))
+  await waitUntil(
+    () => telegram.calls.some(
+      (call) => call.method === 'createForumTopic' && call.params.name === 'Alpha task',
+    ),
+    { label: 'topic created on first notification', timeoutMs: 5000 },
+  )
+  await waitUntil(
+    () => telegram.messages.some(
+      (message) => String(message.chatId) === GROUP && Number(message.threadId) > 1 && message.text.includes('Turn finished'),
+    ),
+    { label: 'notification posted into the new topic', timeoutMs: 5000 },
   )
 })

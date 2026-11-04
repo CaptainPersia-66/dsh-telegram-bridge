@@ -104,7 +104,7 @@ by default. Set `sessions.includeSubagents: true` and/or
 | `/steer <text>` | Send a steering message to the running turn. With no text, waits for your next message. |
 | `/stop` | Stop the running turn. |
 | `/new [absolute-cwd]` | Create a session (optional working directory) and select it. |
-| `/topic [rename <name> \| sync]` | Create/bind the session's forum topic, rename it, or resync its name to the session title. |
+| `/topic [rename <name> \| sync \| close \| reopen]` | Create/bind, rename, resync, close, or reopen the session's topic. |
 | `/rename <title>` | Rename the selected session. With no title, waits for your next message. |
 | `/pending` | List pending approvals/questions with action buttons. |
 | `/approve [id]` / `/deny [id]` | Decide the oldest (or a specific) pending approval. |
@@ -175,21 +175,29 @@ resume and forks. Prompts typed directly in the DSH app have no marker.
 In a **forum supergroup** the bridge can bind one topic to one Session, so the
 chat itself carries the routing:
 
-- **General** is the control room: `/sessions`, `/new`, and status buttons.
-- Selecting a Session in General (button or `/use`) **creates or reuses its
-  topic** and posts the session card there. Bound sessions are marked 🧵 in the
-  list and its buttons; selecting one again reuses that topic (the bot says so)
-  instead of creating a duplicate.
+- **General is a doorway:** `/sessions` and `/new` redirect to a dedicated
+  **control topic** (`topics.controlName`, default **DSH**). It is created on
+  first use (with a pinned card), and it is never bound to a session.
+- Selecting a Session in the control topic (button or `/use`) **creates or
+  reuses its own topic** and posts the session card there. Bound sessions are
+  marked 🧵 in the list and its buttons; selecting one again reuses that topic
+  (the bot says so) instead of creating a duplicate.
+- A Session never selected from the chat still gets its topic automatically on
+  its first turn notification, approval, or question
+  (`topics.autoCreateOnNotify`).
 - The `/sessions` card in a forum also shows a **🧵 Create topics** button that
   creates and binds one topic for every session on the visible page in one tap.
-- **Inside a topic**, plain text and voice notes prompt that topic's Session;
-  `/status`, `/result`, `/review`, `/files`, `/stop`, `/rename` all default to
-  it. Running `/use` inside a topic re-binds that topic.
+- **Inside a session topic**, plain text and voice notes prompt that topic's
+  Session; `/status`, `/result`, `/review`, `/files`, `/stop`, `/rename` all
+  default to it. Running `/use` inside a topic re-binds that topic.
 - Turn notifications, approvals, and questions for a bound Session are posted
-  into its topic.
-- `/topic` creates (or re-binds) the current Session's topic on demand;
-  `/topic rename <name>` overrides its name, `/topic sync` restores the name
-  derived from the Session title.
+  into its topic. The status card is pinned (`topics.pinCard`, needs the bot's
+  pin permission) and replaced when the session is selected again.
+- `/topic` creates the current Session's topic on demand;
+  `/topic rename <name>` overrides its name, `/topic sync` restores the
+  title-derived name, and `/topic close` / `/topic reopen` toggle it manually.
+  Archiving a Session closes its topic; restoring reopens it
+  (`topics.syncArchive`).
 - Topic names derive from the Session title (optionally prefixed) and are
   truncated to `topics.titleChars` (default 48). `/rename` updates the topic
   name too, so a renamed session keeps a matching topic.
@@ -359,6 +367,10 @@ reported as warnings in the Host log.
     topics:
       enabled: true                # forum supergroup: one topic per session
       autoCreate: true             # open a topic when a session is selected in General
+      autoCreateOnNotify: true     # give a session its topic on first notification too
+      syncArchive: true            # close/reopen a topic when its session is archived
+      pinCard: true                # pin the session card in its topic
+      controlName: DSH             # dedicated control topic for /sessions and /new
       titlePrefix: ''              # optional prefix for created topic titles
       titleChars: 48               # truncate the session title in topic names
     pairing:

@@ -347,6 +347,13 @@ export async function startFakeTelegram(options = {}) {
         respond(res, 200, { ok: true, result: true });
         return;
       }
+      case 'closeForumTopic':
+      case 'reopenForumTopic':
+      case 'pinChatMessage':
+      case 'unpinChatMessage': {
+        respond(res, 200, { ok: true, result: true });
+        return;
+      }
       case 'sendDocument':
       case 'sendVideo':
       case 'sendAudio':

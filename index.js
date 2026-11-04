@@ -93,6 +93,11 @@ export function apply(ctx, rawConfig) {
     targets: (sessionId) => router
       ? interactionTargets(sessionId)
       : config.allowedChatIds.map((chatId) => ({ chatId, threadId: null })),
+    ensureTopic: async (sessionId) => {
+      if (!sessionId) return
+      const status = await statusForMaybe({ id: sessionId })
+      await ensureNotificationTopic(sessionId, status)
+    },
   })
 
   const voice = createVoice({ ctx, config, log, apiProvider: () => api })
@@ -189,6 +194,65 @@ export function apply(ctx, rawConfig) {
   }
 
   /**
+   * Give a Session its topic when it first needs attention in a forum chat.
+   * @param {string} sessionId
+   * @param {any} status
+   */
+  async function ensureNotificationTopic(sessionId, status) {
+    if (!config.topics.enabled || !config.topics.autoCreateOnNotify || api === null) return
+    for (const chatId of router.authorizedChats()) {
+      const chat = state.getChat(chatId)
+      if (!chat.notifications) continue
+      if (!state.isForumChat(chatId)) continue
+      if (chat.notifyMode !== 'all' && chat.currentSessionId !== sessionId) continue
+      const bound = state.findThreadForSession(sessionId)
+      if (bound && bound.chatId === String(chatId)) continue
+      try {
+        const name = topicNameForStatus(status, config.topics)
+        const created = await api.createForumTopic({ chatId, name })
+        const threadId = Number(created?.message_thread_id)
+        if (!Number.isSafeInteger(threadId) || threadId <= 0) throw new Error('Telegram returned no topic id')
+        state.setThreadSession(chatId, threadId, sessionId)
+        state.setThreadName(chatId, threadId, name)
+        await router.send(chatId, views.statusParts(status, {
+          url: webUrl(),
+          titleChars: config.limits.sessionTitleChars,
+        }), { sessionId, threadId, pin: true })
+        log.info?.(`telegram-bridge: created topic for ${sessionId} on first notification`)
+      } catch (error) {
+        log.warn?.(`telegram-bridge: could not create a topic on notification (${error?.message ?? error})`)
+      }
+    }
+  }
+
+  /**
+   * Close/reopen a Session's topic to match its archived state.
+   * @param {string} sessionId
+   */
+  async function syncArchiveForSession(sessionId) {
+    if (!config.topics.enabled || !config.topics.syncArchive || api === null) return
+    const bound = state.findThreadForSession(sessionId)
+    if (!bound) return
+    let archived
+    try {
+      const sessions = await bridge.listSessions()
+      const found = sessions.find((session) => session.id === sessionId)
+      if (!found) return
+      archived = found.archived === true
+    } catch {
+      return
+    }
+    if (archived === state.isThreadClosed(bound.chatId, bound.threadId)) return
+    try {
+      if (archived) await api.closeForumTopic({ chatId: bound.chatId, messageThreadId: bound.threadId })
+      else await api.reopenForumTopic({ chatId: bound.chatId, messageThreadId: bound.threadId })
+      state.setThreadClosed(bound.chatId, bound.threadId, archived)
+    } catch (error) {
+      log.warn?.(`telegram-bridge: could not sync the archived topic (${error?.message ?? error})`)
+    }
+  }
+
+  /**
    * Approvals and questions go to every authorized chat (they are live requests,
    * not subscriptions), posted in the session's topic when one is bound.
    * @param {string} sessionId
@@ -260,23 +324,26 @@ export function apply(ctx, rawConfig) {
     if (header.origin === 'subagent' && !config.notifications.includeSubagents) return
     const reason = event.data?.reason?.kind ?? 'completed'
     if (reason === 'error' && !config.notifications.onError) return
-    const targets = notificationTargets(String(session.id))
-    if (targets.length === 0) return
+    const sessionId = String(session.id)
     const [status, turnView] = await Promise.all([
       statusForMaybe({ id: session.id }),
-      bridge.readRecentTurns(String(session.id), { turns: 1, maxEvents: config.limits.maxEventsPerRead }).catch(() => null),
+      bridge.readRecentTurns(sessionId, { turns: 1, maxEvents: config.limits.maxEventsPerRead }).catch(() => null),
     ])
+    await ensureNotificationTopic(sessionId, status)
+    await syncArchiveForSession(sessionId)
+    const targets = notificationTargets(sessionId)
+    if (targets.length === 0) return
     const parts = views.turnEndParts(status, {
       turn: Number(event.data?.turn ?? 0),
       reason,
-      sessionId: String(session.id),
+      sessionId,
       url: webUrl(),
       snippetChars: config.notifications.snippetChars,
       turnView,
     })
-    if (reason === 'error') notifiedErrors.set(String(session.id), Number(event.data?.turn ?? 0))
-    await syncTopicName(String(session.id), status)
-    await sendToChats(targets, () => parts, status, String(session.id))
+    if (reason === 'error') notifiedErrors.set(sessionId, Number(event.data?.turn ?? 0))
+    await syncTopicName(sessionId, status)
+    await sendToChats(targets, () => parts, status, sessionId)
 
     // Forward the turn's media/documents so they can be reviewed in Telegram.
     const turn = turnView?.turns?.[turnView.turns.length - 1]
@@ -332,9 +399,10 @@ export function apply(ctx, rawConfig) {
    */
   async function notifyRemoteInteraction(sessionId, kind) {
     if (lifetime.signal.aborted || api === null || !config.notifications.enabled) return
+    const status = await statusForMaybe({ id: sessionId })
+    await ensureNotificationTopic(sessionId, status)
     const chats = notificationTargets(sessionId)
     if (chats.length === 0) return
-    const status = await statusForMaybe({ id: sessionId })
     const parts = views.remoteInteractionNotice(status, { session: status, kind, url: webUrl() })
     await sendToChats(chats, () => parts, status, sessionId)
   }
