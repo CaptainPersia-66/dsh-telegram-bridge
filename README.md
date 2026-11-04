@@ -455,7 +455,7 @@ endpoint during development (`node scripts/live-fake-telegram.mjs <out-dir> 1876
 
 ## Development & source
 
-- Repository: [CaptainPersia-66/dsh-telegram-bridge](https://github.com/CaptainPersia-66/dsh-telegram-bridge) (private, MIT).
+- Repository: [CaptainPersia-66/dsh-telegram-bridge](https://github.com/CaptainPersia-66/dsh-telegram-bridge) (public, MIT).
 - Run the suite with `node --test` — no dependencies beyond Node 24.
 - Every completed, verified change is checkpointed to `main` and milestones are
   tagged (`v1.0.0` is the first). The plugin stays installed from this folder, so
