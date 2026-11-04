@@ -4,7 +4,7 @@ DSH Telegram bridge plugin: zero third-party runtime dependencies, Node ESM.
 
 ## Verify before committing
 
-- Run the full suite: `node --test` (110 tests at the time of writing).
+- Run the full suite: `node --test`.
 - Syntax-check changed files: `node --check <file>`.
 - A change is "completed" only when its tests pass. Live Telegram behavior is
   verified separately by restarting DSH and exercising the bot.
@@ -38,6 +38,8 @@ are resolved from the environment (`TELEGRAM_BOT_TOKEN`).
 - `lib/telegram-api.js` — Bot API client (long polling, files, forum topics)
 - `lib/interactions.js` — approvals and user questions
 - `lib/media.js` — deliverable/media forwarding
+- `lib/transcode.js` — ffmpeg compression for oversized video/audio deliverables
+- `lib/topics.js` — forum-topic naming helpers
 - `lib/voice.js` — voice-note transcription pipeline
 - `lib/prompt.js` — `[via Telegram]` marker and remote-request system prompt
 - `test/` — fake Bot API + fake DSH Host integration harness

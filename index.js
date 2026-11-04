@@ -17,6 +17,7 @@ import { describeSkippedMedia, sendTurnMedia } from './lib/media.js'
 import { registerPromptSection } from './lib/prompt.js'
 import { BridgeState } from './lib/state.js'
 import { topicNameForStatus } from './lib/topics.js'
+import { createMediaCompressor } from './lib/transcode.js'
 import { TelegramApi } from './lib/telegram-api.js'
 import { createVoice } from './lib/voice.js'
 import * as views from './lib/views.js'
@@ -95,6 +96,7 @@ export function apply(ctx, rawConfig) {
   })
 
   const voice = createVoice({ ctx, config, log, apiProvider: () => api })
+  const mediaCompressor = createMediaCompressor({ ctx, config, log })
 
   router = createRouter({
     config,
@@ -103,6 +105,7 @@ export function apply(ctx, rawConfig) {
     state,
     interactions,
     voice,
+    compress: mediaCompressor,
     log,
     describe: () => {
       const view = describeConfig(config, tokenInfo)
@@ -288,6 +291,7 @@ export function apply(ctx, rawConfig) {
             cwd: turnView?.cwd ?? status?.cwd ?? null,
             config,
             log,
+            compress: mediaCompressor,
           })
           if (result.skipped.length > 0) {
             const note = describeSkippedMedia(result.skipped)

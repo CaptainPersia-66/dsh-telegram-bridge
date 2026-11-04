@@ -285,11 +285,15 @@ the turn notification:
   audio (`mp3 wav m4a ogg flac aac`), documents (`pdf docx pptx xlsx csv zip`).
 
 Images arrive as photos with inline preview; a photo over 9 MB is sent as a
-document instead. Videos/audio get inline players. Files above
-`deliverables.maxBytes` (default 45 MB) are skipped and reported in a short
-"not forwarded" note instead of failing the notification. Code-only changes are
-never uploaded. `/files` (or the **📎 Files** button under All controls) resends
-the previous turn's deliverables on demand.
+document instead. Videos/audio get inline players. When a **video or audio** file
+exceeds `deliverables.maxBytes` (default 45 MB, under Telegram's ~50 MB bot
+upload cap), the bridge transcodes a compressed copy with **ffmpeg** and sends
+that (1080p → 720p → 480p renditions, first copy that fits). The caption says
+"compressed from …" and the original file on the PC is untouched. If ffmpeg
+cannot produce a fitting copy (or compression is disabled), the file is skipped
+and reported in a short "not forwarded" note instead of failing the
+notification. Code-only changes are never uploaded. `/files` (or the **📎 Files**
+button under All controls) resends the previous turn's deliverables on demand.
 
 Set `deliverables.enabled: false` to disable forwarding, or replace the
 allow-list:
@@ -299,6 +303,9 @@ deliverables:
   enabled: true
   maxBytes: 47185920
   extensions: ["mp4", "png", "pdf", "epub"]  # or {epub: document, ...}
+  compression:
+    enabled: true            # transcode oversized video/audio with ffmpeg
+    timeoutMs: 600000        # per rendition
 ```
 
 ---
@@ -373,6 +380,9 @@ reported as warnings in the Host log.
       enabled: true                # forward produced media/documents to Telegram
       maxBytes: 47185920           # Bot API upload ceiling headroom
       extensions: []               # [] = built-in allow-list; or [mp4, png, …]
+      compression:
+        enabled: true              # transcode oversized video/audio (ffmpeg)
+        timeoutMs: 600000
 ```
 
 The state file defaults to `$DSH_HOME/telegram-bridge/state.json` and stores only
@@ -450,7 +460,9 @@ endpoint during development (`node scripts/live-fake-telegram.mjs <out-dir> 1876
 ## Limitations
 
 - Text messages and voice notes inbound; outbound media is limited to the
-  Bot API's ~50 MB upload ceiling and the `deliverables` allow-list.
+  Bot API's ~50 MB upload ceiling and the `deliverables` allow-list. Oversized
+  video/audio is transcoded when ffmpeg is available; other oversized files are
+  skipped with a note.
 - Inbound photos, documents and stickers are not read yet.
 - One bot token per installed profile; `apiBaseUrl` supports a self-hosted Bot API server.
 - Telegram messages are edited best-effort: very old approval/question messages
@@ -463,7 +475,7 @@ endpoint during development (`node scripts/live-fake-telegram.mjs <out-dir> 1876
 ## Development & source
 
 - Repository: [CaptainPersia-66/dsh-telegram-bridge](https://github.com/CaptainPersia-66/dsh-telegram-bridge) (public, MIT).
-- Run the suite with `node --test` — no dependencies beyond Node 24.
+- Run the suite with `node --test` — no dependencies beyond Node 24; ffmpeg is optional (voice notes and large-file compression).
 - Every completed, verified change is checkpointed to `main` and milestones are
   tagged (`v1.0.0` is the first). The plugin stays installed from this folder, so
   commits do not disturb the running profile.

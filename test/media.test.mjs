@@ -5,8 +5,11 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { DEFAULT_EXTENSIONS, describeSkippedMedia, planTurnMedia } from '../lib/media.js'
+import { DEFAULT_EXTENSIONS, describeSkippedMedia, planTurnMedia, sendTurnMedia } from '../lib/media.js'
 
 test('planTurnMedia forwards media/documents and ignores code files', () => {
   const turn = {
@@ -105,4 +108,79 @@ test('describeSkippedMedia summarizes at most three files', () => {
   ])
   assert.match(note, /a\.mp4/)
   assert.match(note, /\+1 more/)
+})
+
+test('an oversized video is transcoded and sent when a compressed copy fits', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-tg-compress-test-'))
+  try {
+    const path = join(directory, 'render.mp4')
+    await writeFile(path, new Uint8Array(100))
+    const sent = []
+    const api = {
+      async sendFile(request) {
+        sent.push(request)
+        return { message_id: 1 }
+      },
+    }
+    const config = {
+      deliverables: {
+        enabled: true,
+        maxBytes: 50,
+        extensions: {},
+        compression: { enabled: true },
+      },
+    }
+    const result = await sendTurnMedia({
+      api,
+      chatId: '1',
+      turn: { deliverables: [{ path }] },
+      cwd: directory,
+      config,
+      log: { warn() {} },
+      compress: async () => ({
+        bytes: new Uint8Array(10),
+        filename: 'render-compressed.mp4',
+        mimeType: 'video/mp4',
+      }),
+    })
+    assert.equal(result.sent, 1)
+    assert.equal(result.skipped.length, 0)
+    assert.equal(sent[0].method, 'sendVideo')
+    assert.equal(sent[0].filename, 'render-compressed.mp4')
+    assert.match(sent[0].caption, /compressed from/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('an oversized video is skipped when compression cannot produce a fitting copy', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-tg-compress-test-'))
+  try {
+    const path = join(directory, 'render.mp4')
+    await writeFile(path, new Uint8Array(100))
+    const sent = []
+    const api = { async sendFile(request) { sent.push(request); return { message_id: 1 } } }
+    const config = {
+      deliverables: {
+        enabled: true,
+        maxBytes: 50,
+        extensions: {},
+        compression: { enabled: true },
+      },
+    }
+    const result = await sendTurnMedia({
+      api,
+      chatId: '1',
+      turn: { deliverables: [{ path }] },
+      cwd: directory,
+      config,
+      log: { warn() {} },
+      compress: async () => null,
+    })
+    assert.equal(result.sent, 0)
+    assert.equal(sent.length, 0)
+    assert.match(result.skipped[0].reason, /too-large/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
