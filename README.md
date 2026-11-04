@@ -177,8 +177,9 @@ chat itself carries the routing:
 
 - **General** is the control room: `/sessions`, `/new`, and status buttons.
 - Selecting a Session in General (button or `/use`) **creates or reuses its
-  topic** and posts the session card there; the bot replies with a short
-  "opened topic" note in General.
+  topic** and posts the session card there. Bound sessions are marked 🧵 in the
+  list and its buttons; selecting one again reuses that topic (the bot says so)
+  instead of creating a duplicate.
 - The `/sessions` card in a forum also shows a **🧵 Create topics** button that
   creates and binds one topic for every session on the visible page in one tap.
 - **Inside a topic**, plain text and voice notes prompt that topic's Session;

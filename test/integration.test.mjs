@@ -782,3 +782,45 @@ test('a General message without a thread id does not reuse the previous topic', 
   assert.notEqual(Number(secondTopic), Number(firstTopic))
   assert.ok(telegram.calls.filter((call) => call.method === 'createForumTopic').length >= 2)
 })
+
+test('selecting a session that already has a topic reuses it instead of creating another', async (t) => {
+  const GROUP = '-1009004'
+  const env = await setup({
+    allowedChatIds: [CHAT, GROUP],
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+  })
+  t.after(() => env.cleanup())
+  const { telegram } = env
+
+  // First selection creates the session's topic.
+  telegram.pushUpdate(forumUpdate('/use session-alpha-0001', GROUP, env.nextUpdateId(), 1))
+  await waitUntil(
+    () => telegram.calls.filter((call) => call.method === 'createForumTopic').length === 1,
+    { label: 'first topic created', timeoutMs: 5000 },
+  )
+
+  // Selecting the same session again must explain that it already has a topic
+  // and post its card there, not create a duplicate.
+  telegram.pushUpdate(forumUpdate('/sessions', GROUP, env.nextUpdateId(), 0))
+  await waitUntil(
+    () => telegram.messages.some(
+      (message) => String(message.chatId) === GROUP && !message.threadId && JSON.stringify(message.keyboard ?? {}).includes('sel:0'),
+    ),
+    { label: 'sessions card sent to General', timeoutMs: 5000 },
+  )
+  const card = [...telegram.messages].reverse().find(
+    (message) => String(message.chatId) === GROUP && !message.threadId && JSON.stringify(message.keyboard ?? {}).includes('sel:0'),
+  )
+  telegram.pushUpdate(forumCallbackUpdate(card, 'sel:0', env.nextUpdateId(), 0))
+  await waitUntil(
+    () => telegram.messages.some(
+      (message) => String(message.chatId) === GROUP && !message.threadId && message.text.includes('already has a topic'),
+    ),
+    { label: 'reuse confirmation sent', timeoutMs: 5000 },
+  )
+  assert.equal(
+    telegram.calls.filter((call) => call.method === 'createForumTopic').length,
+    1,
+    'selecting a bound session must not create a duplicate topic',
+  )
+})
