@@ -104,7 +104,7 @@ by default. Set `sessions.includeSubagents: true` and/or
 | `/steer <text>` | Send a steering message to the running turn. With no text, waits for your next message. |
 | `/stop` | Stop the running turn. |
 | `/new [absolute-cwd]` | Create a session (optional working directory) and select it. |
-| `/topic` | Create/bind the current session's forum topic (supergroup forums). |
+| `/topic [rename <name> \| sync]` | Create/bind the session's forum topic, rename it, or resync its name to the session title. |
 | `/rename <title>` | Rename the selected session. With no title, waits for your next message. |
 | `/pending` | List pending approvals/questions with action buttons. |
 | `/approve [id]` / `/deny [id]` | Decide the oldest (or a specific) pending approval. |
@@ -187,7 +187,12 @@ chat itself carries the routing:
   it. Running `/use` inside a topic re-binds that topic.
 - Turn notifications, approvals, and questions for a bound Session are posted
   into its topic.
-- `/topic` creates (or re-binds) the current Session's topic on demand.
+- `/topic` creates (or re-binds) the current Session's topic on demand;
+  `/topic rename <name>` overrides its name, `/topic sync` restores the name
+  derived from the Session title.
+- Topic names derive from the Session title (optionally prefixed) and are
+  truncated to `topics.titleChars` (default 48). `/rename` updates the topic
+  name too, so a renamed session keeps a matching topic.
 
 Bindings persist in the state file (`<chatId>:<message_thread_id>` → session),
 so they survive restarts. Setup requirements:
@@ -348,6 +353,7 @@ reported as warnings in the Host log.
       enabled: true                # forum supergroup: one topic per session
       autoCreate: true             # open a topic when a session is selected in General
       titlePrefix: ''              # optional prefix for created topic titles
+      titleChars: 48               # truncate the session title in topic names
     pairing:
       notice: true
       cooldownMs: 600000

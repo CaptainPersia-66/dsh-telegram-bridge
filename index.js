@@ -16,6 +16,7 @@ import { createInteractions } from './lib/interactions.js'
 import { describeSkippedMedia, sendTurnMedia } from './lib/media.js'
 import { registerPromptSection } from './lib/prompt.js'
 import { BridgeState } from './lib/state.js'
+import { topicNameForStatus } from './lib/topics.js'
 import { TelegramApi } from './lib/telegram-api.js'
 import { createVoice } from './lib/voice.js'
 import * as views from './lib/views.js'
@@ -158,6 +159,33 @@ export function apply(ctx, rawConfig) {
   }
 
   /**
+   * Keep a Session's forum-topic name in step with its title. Called on turn
+   * notifications, so renaming a session anywhere in DSH updates its topic.
+   * @param {string} sessionId
+   * @param {any} status
+   */
+  async function syncTopicName(sessionId, status) {
+    if (!config.topics.enabled || api === null) return
+    const bound = state.findThreadForSession(sessionId)
+    if (!bound) return
+    const desired = topicNameForStatus(status, config.topics)
+    const current = state.getThreadName(bound.chatId, bound.threadId)
+    if (current === desired) return
+    if (current === null) {
+      // Binding predates name tracking; adopt the current name without a call.
+      state.setThreadName(bound.chatId, bound.threadId, desired)
+      return
+    }
+    try {
+      await api.editForumTopic({ chatId: bound.chatId, messageThreadId: bound.threadId, name: desired })
+      state.setThreadName(bound.chatId, bound.threadId, desired)
+      log.info?.(`telegram-bridge: synced topic name for ${sessionId}`)
+    } catch (error) {
+      log.warn?.(`telegram-bridge: could not sync topic name (${error?.message ?? error})`)
+    }
+  }
+
+  /**
    * Approvals and questions go to every authorized chat (they are live requests,
    * not subscriptions), posted in the session's topic when one is bound.
    * @param {string} sessionId
@@ -244,6 +272,7 @@ export function apply(ctx, rawConfig) {
       turnView,
     })
     if (reason === 'error') notifiedErrors.set(String(session.id), Number(event.data?.turn ?? 0))
+    await syncTopicName(String(session.id), status)
     await sendToChats(targets, () => parts, status, String(session.id))
 
     // Forward the turn's media/documents so they can be reviewed in Telegram.

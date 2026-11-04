@@ -824,3 +824,37 @@ test('selecting a session that already has a topic reuses it instead of creating
     'selecting a bound session must not create a duplicate topic',
   )
 })
+
+test('topic names can be renamed manually and follow session renames', async (t) => {
+  const GROUP = '-1009005'
+  const env = await setup({
+    allowedChatIds: [CHAT, GROUP],
+    notifications: { enabled: true, mode: 'all', onTurnEnd: true },
+  })
+  t.after(() => env.cleanup())
+  const { telegram } = env
+
+  // Bind a topic to alpha.
+  telegram.pushUpdate(forumUpdate('/use session-alpha-0001', GROUP, env.nextUpdateId(), 1))
+  await waitUntil(
+    () => telegram.messages.some((message) => String(message.chatId) === GROUP && Number(message.threadId) > 1),
+    { label: 'topic created', timeoutMs: 5000 },
+  )
+  const topicId = telegram.messages.find(
+    (message) => String(message.chatId) === GROUP && Number(message.threadId) > 1,
+  ).threadId
+
+  // Explicit rename inside the topic edits the Telegram topic.
+  telegram.pushUpdate(forumUpdate('/topic rename My Alpha', GROUP, env.nextUpdateId(), topicId))
+  await waitUntil(
+    () => telegram.calls.some((call) => call.method === 'editForumTopic' && call.params.name === 'My Alpha'),
+    { label: 'manual topic rename applied', timeoutMs: 5000 },
+  )
+
+  // Renaming the session syncs the topic name too.
+  telegram.pushUpdate(forumUpdate('/rename Renamed Alpha', GROUP, env.nextUpdateId(), topicId))
+  await waitUntil(
+    () => telegram.calls.some((call) => call.method === 'editForumTopic' && call.params.name === 'Renamed Alpha'),
+    { label: 'session rename synced to topic', timeoutMs: 5000 },
+  )
+})
